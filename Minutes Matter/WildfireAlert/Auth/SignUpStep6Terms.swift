@@ -3,7 +3,6 @@
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
 struct SignUpStep6Terms: View {
@@ -56,20 +55,33 @@ struct SignUpStep6Terms: View {
             }
 
                 Button {
-                    Task { await submit() }
+                    Task {
+                        validationMessage = nil
+                        guard allChecked else {
+                            validationMessage = "Please agree to all terms to continue"
+                            return
+                        }
+                        isSaving = true
+                        await authState.completeSignupWizardSavingConsentFlags(
+                            locationConsent: consentLocation,
+                            evacuationConsent: consentEvacuation,
+                            healthConsent: consentHealth
+                        )
+                        isSaving = false
+                    }
                 } label: {
-                    ZStack {
+                    HStack(spacing: 8) {
                         if isSaving {
                             ProgressView()
                                 .tint(Color(hex: "#ffffff"))
-                        } else {
-                            Text("Create Account")
+                                .scaleEffect(0.8)
                         }
+                        Text(isSaving ? "Creating account…" : "Create Account")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(!allChecked || isSaving)
-                .opacity(allChecked ? 1 : 0.45)
+                .opacity(allChecked ? 1.0 : 0.5)
             .padding(.bottom, 32)
         }
     }
@@ -108,27 +120,4 @@ struct SignUpStep6Terms: View {
         }
     }
 
-    private func submit() async {
-        validationMessage = nil
-        guard allChecked else {
-            validationMessage = "Please agree to all terms to continue"
-            return
-        }
-        guard let uid = authState.currentUser?.id else { return }
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            try await SupabaseService.shared.updateConsents(
-                userId: uid,
-                locationConsent: true,
-                evacuationConsent: true,
-                healthConsent: true
-            )
-            await authState.refreshProfile()
-            authState.completeSignupWizard()
-            onComplete()
-        } catch {
-            validationMessage = error.localizedDescription
-        }
-    }
 }

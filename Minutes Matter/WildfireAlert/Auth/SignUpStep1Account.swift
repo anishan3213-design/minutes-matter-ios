@@ -3,7 +3,6 @@
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
 struct SignUpStep1Account: View {

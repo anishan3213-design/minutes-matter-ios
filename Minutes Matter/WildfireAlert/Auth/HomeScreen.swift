@@ -63,8 +63,8 @@ struct HomeScreen: View {
         VStack(alignment: .leading, spacing: 20) {
             featureRow(
                 icon: "🔥",
-                title: "Fire Alerts Before Orders",
-                description: "Get notified the moment satellite data detects a fire near your location."
+                title: "Real-Time Fire Alerts",
+                description: "Get notified the moment a fire is detected near your home or work — before it reaches your street."
             )
             featureRow(
                 icon: "✅",
@@ -102,6 +102,7 @@ struct HomeScreen: View {
         VStack(spacing: 16) {
             NavigationLink {
                 SignUpFlowView(isResumeWizard: false)
+                    .environmentObject(authState)
             } label: {
                 Text("Get Started Free")
             }
@@ -109,6 +110,7 @@ struct HomeScreen: View {
 
             NavigationLink {
                 LoginFormView()
+                    .environmentObject(authState)
             } label: {
                 Text("Sign In")
             }

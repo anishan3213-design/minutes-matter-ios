@@ -16,7 +16,14 @@ struct SignUpFlowView: View {
     @State private var showEmailConfirmation = false
     @State private var pendingConfirmationEmail = ""
 
-    private static let signupStepTitles = ["Account", "Your Info", "Address", "Work Location", "Preferences", "Terms"]
+    private static let signupStepTitles = [
+        "Account",
+        "Home Address",
+        "Work Location",
+        "Emergency Info",
+        "Accessibility",
+        "Terms",
+    ]
 
     init(isResumeWizard: Bool = false) {
         self.isResumeWizard = isResumeWizard
@@ -47,7 +54,7 @@ struct SignUpFlowView: View {
                         authState.persistSignupWizard(step: step)
                     }
                     .foregroundColor(AppColors.primary)
-                } else if !isResumeWizard {
+                } else if !isResumeWizard, !authState.signupInProgress {
                     Button("Close") {
                         dismiss()
                     }
@@ -56,9 +63,17 @@ struct SignUpFlowView: View {
             }
         }
         .onAppear {
-            if isResumeWizard, let s = authState.signupWizardStep {
-                step = s
-            }
+            syncStepFromWizardState()
+        }
+        .onChange(of: authState.signupWizardStep) { _ in
+            syncStepFromWizardState()
+        }
+    }
+
+    private func syncStepFromWizardState() {
+        if let s = authState.signupWizardStep, (2 ... 6).contains(s) {
+            let restored = min(max(s, isResumeWizard ? 2 : 1), 6)
+            step = restored
         }
     }
 
@@ -71,29 +86,29 @@ struct SignUpFlowView: View {
                     switch step {
                     case 1:
                         SignUpStep1Account(
-                            onSignedIn: {},
+                            onSignedIn: { goTo(2) },
                             onConfirmEmail: { addr in
                                 pendingConfirmationEmail = addr
                                 showEmailConfirmation = true
                             }
                         )
                     case 2:
-                        SignUpStep2Info(
+                        SignUpStep2HomeAddress(
                             onContinue: { goTo(3) },
                             onSkip: { goTo(3) }
                         )
                     case 3:
-                        SignUpStep3Address(
+                        SignUpStep3WorkLocation(
                             onContinue: { goTo(4) },
                             onSkip: { goTo(4) }
                         )
                     case 4:
-                        SignUpStep4Work(
+                        SignUpStep4Contacts(
                             onContinue: { goTo(5) },
                             onSkip: { goTo(5) }
                         )
                     case 5:
-                        SignUpStep5Prefs(onContinue: { goTo(6) })
+                        SignUpStep5Accessibility(onContinue: { goTo(6) })
                     case 6:
                         SignUpStep6Terms(onComplete: {})
                     default:
@@ -120,7 +135,10 @@ struct SignUpFlowView: View {
                 }
             }
             .frame(height: 3)
-            Text("Step \(step) of 6: \(Self.signupStepTitles[step - 1])")
+            let title = (1 ... 6).contains(step)
+                ? Self.signupStepTitles[step - 1]
+                : ""
+            Text("Step \(step) of 6: \(title)")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(Color(hex: "#6b7280"))
                 .textCase(.uppercase)
@@ -157,6 +175,7 @@ struct SignUpFlowView: View {
     }
 
     private func goTo(_ newStep: Int) {
+        guard (1 ... 6).contains(newStep) else { return }
         step = newStep
         authState.persistSignupWizard(step: newStep)
     }

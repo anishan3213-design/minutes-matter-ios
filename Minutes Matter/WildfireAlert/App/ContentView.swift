@@ -11,21 +11,26 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if authState.isLoading && !authState.isAuthenticated {
+            if authState.isLoading {
                 ZStack {
-                    AppColors.background.ignoresSafeArea()
+                    Color(hex: "#0f0f0f").ignoresSafeArea()
                     ProgressView()
-                        .tint(AppColors.primary)
+                        .tint(Color(hex: "#16a34a"))
                 }
-            } else if authState.isAuthenticated, !authState.isFirefighter, authState.signupWizardStep != nil {
-                SignUpFlowView(isResumeWizard: true)
-                    .environmentObject(authState)
-            } else if authState.isAuthenticated, authState.isFirefighter {
-                FirefighterTabView()
-                    .environmentObject(authState)
             } else if authState.isAuthenticated {
-                MainTabView()
-                    .environmentObject(authState)
+                if authState.signupInProgress {
+                    SignUpFlowView(isResumeWizard: false)
+                        .environmentObject(authState)
+                } else if authState.signupWizardStep != nil {
+                    SignUpFlowView(isResumeWizard: true)
+                        .environmentObject(authState)
+                } else if authState.isFirefighter {
+                    FirefighterTabView()
+                        .environmentObject(authState)
+                } else {
+                    MainTabView()
+                        .environmentObject(authState)
+                }
             } else {
                 HomeScreen()
                     .environmentObject(authState)
@@ -38,35 +43,41 @@ struct ContentView: View {
 }
 
 private struct MainTabView: View {
+    @EnvironmentObject private var authState: AuthState
     @State private var selectedTab: AppMainTab = .hub
 
     var body: some View {
         TabView(selection: $selectedTab) {
             HubView(selectedTab: $selectedTab)
+                .environmentObject(authState)
                 .tabItem {
                     Label("Hub", systemImage: "house.fill")
                 }
                 .tag(AppMainTab.hub)
 
             CheckInView()
+                .environmentObject(authState)
                 .tabItem {
                     Label("Check In", systemImage: "checkmark.circle.fill")
                 }
                 .tag(AppMainTab.checkIn)
 
             MapView()
+                .environmentObject(authState)
                 .tabItem {
                     Label("Map", systemImage: "map.fill")
                 }
                 .tag(AppMainTab.map)
 
             PeopleView()
+                .environmentObject(authState)
                 .tabItem {
                     Label("People", systemImage: "person.2.fill")
                 }
                 .tag(AppMainTab.people)
 
             SettingsView()
+                .environmentObject(authState)
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }

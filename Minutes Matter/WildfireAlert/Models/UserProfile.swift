@@ -14,10 +14,9 @@ struct UserProfile: Codable, Identifiable, Equatable {
     var roles: [String]?
     /// Station / department display name.
     var orgName: String?
-    /// Verified station or command post address (responders).
+    /// Home address (civilians) or station / command address (responders); DB column `address`.
     var address: String?
     var phone: String?
-    var homeAddress: String?
     var workAddress: String?
     var workBuildingType: String?
     var workFloorNumber: String?
@@ -48,7 +47,6 @@ struct UserProfile: Codable, Identifiable, Equatable {
         case orgName = "org_name"
         case address
         case phone
-        case homeAddress = "home_address"
         case workAddress = "work_address"
         case workBuildingType = "work_building_type"
         case workFloorNumber = "work_floor_number"

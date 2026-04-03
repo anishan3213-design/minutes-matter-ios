@@ -27,19 +27,12 @@ struct AddressInputView: View {
                             .foregroundColor(AppColors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        TextField(
-                            "",
-                            text: $addressText,
-                            prompt: Text("123 Main St, City, State").foregroundColor(Color(hex: "#6b7280"))
+                        AddressSearchField(
+                            placeholder: "Search your home address",
+                            helperText: "Enter your full street address including city and state for best results.",
+                            selectedAddress: $addressText,
+                            onSelect: { _ in }
                         )
-                        .textContentType(.fullStreetAddress)
-                        .inputFieldMultilineStyle(minHeight: 120)
-                        .onSubmit { Task { await saveIfValid() } }
-
-                        Text("Enter your full street address including city and state for best results.")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppColors.textMuted)
-                            .fixedSize(horizontal: false, vertical: true)
 
                         if let err = viewModel.errorMessage {
                             Text(err)
@@ -69,7 +62,7 @@ struct AddressInputView: View {
                 }
             }
             .onAppear {
-                addressText = viewModel.profile?.homeAddress ?? authState.profile?.homeAddress ?? ""
+                addressText = viewModel.profile?.address ?? authState.profile?.address ?? ""
                 viewModel.errorMessage = nil
             }
         }

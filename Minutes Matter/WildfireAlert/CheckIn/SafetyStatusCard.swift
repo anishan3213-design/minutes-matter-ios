@@ -3,7 +3,6 @@
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
 struct SafetyStatusCard: View {
@@ -88,7 +87,7 @@ struct SafetyStatusCard: View {
     @ViewBuilder
     private var saveSafetyButton: some View {
         Button {
-            guard let id = authState.currentUser?.id else { return }
+            guard let id = authState.currentUserId else { return }
             Task {
                 await viewModel.saveSafetyStatus(userId: id, token: nil, auth: authState)
             }

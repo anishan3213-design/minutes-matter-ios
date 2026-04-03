@@ -12,7 +12,9 @@ struct LoginFormView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     @State private var isSigningIn = false
+    @State private var isSendingReset = false
 
     var body: some View {
         ZStack {
@@ -50,13 +52,20 @@ struct LoginFormView: View {
                         .inputFieldStyle()
 
                     Button {
-                        // Non-functional placeholder
+                        Task { await sendPasswordReset() }
                     } label: {
-                        Text("Forgot password?")
-                            .font(.system(size: 14))
-                            .foregroundColor(Color(hex: "#6b7280"))
+                        if isSendingReset {
+                            ProgressView()
+                                .scaleEffect(0.85)
+                                .tint(Color(hex: "#6b7280"))
+                        } else {
+                            Text("Forgot password?")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(hex: "#6b7280"))
+                        }
                     }
                     .buttonStyle(.plain)
+                    .disabled(isSendingReset)
 
                     Button {
                         Task { await signIn() }
@@ -74,6 +83,12 @@ struct LoginFormView: View {
                     .disabled(isSigningIn || email.isEmpty || password.isEmpty)
                     .opacity((email.isEmpty || password.isEmpty) && !isSigningIn ? 0.55 : 1)
 
+                    if let successMessage {
+                        Text(successMessage)
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(hex: "#16a34a"))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.system(size: 14))
@@ -83,6 +98,7 @@ struct LoginFormView: View {
 
                     NavigationLink {
                         SignUpFlowView(isResumeWizard: false)
+                            .environmentObject(authState)
                     } label: {
                         Text("Create account")
                             .font(.system(size: 16))
@@ -117,6 +133,7 @@ struct LoginFormView: View {
 
     private func signIn() async {
         errorMessage = nil
+        successMessage = nil
         isSigningIn = true
         defer { isSigningIn = false }
         do {
@@ -125,6 +142,28 @@ struct LoginFormView: View {
                 password: password
             )
             dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func sendPasswordReset() async {
+        errorMessage = nil
+        successMessage = nil
+        let addr = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !addr.isEmpty else {
+            errorMessage = "Enter your email first"
+            return
+        }
+        if let configError = authState.configurationError {
+            errorMessage = configError
+            return
+        }
+        isSendingReset = true
+        defer { isSendingReset = false }
+        do {
+            try await SupabaseService.shared.resetPasswordForEmail(addr)
+            successMessage = "Check your email for a reset link"
         } catch {
             errorMessage = error.localizedDescription
         }

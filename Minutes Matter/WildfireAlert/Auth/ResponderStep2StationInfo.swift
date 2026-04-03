@@ -9,13 +9,9 @@ struct ResponderStep2StationInfo: View {
     @ObservedObject var draft: ResponderSignupDraft
     var onContinue: () -> Void
 
-    @State private var showAddressConfirm = false
-    @State private var formattedPreview: String = ""
-
     private var canContinue: Bool {
         !draft.stationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !draft.stationAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && draft.addressVerified
     }
 
     var body: some View {
@@ -34,34 +30,21 @@ struct ResponderStep2StationInfo: View {
                 TextField("e.g. Clayton Fire Station #1", text: $draft.stationName)
                     .authInputFieldStyle()
 
-                Text("Station or command post address")
-                    .authSectionLabelStyle()
-                TextField("123 Station Rd, City, State", text: $draft.stationAddress, axis: .vertical)
-                    .lineLimit(3 ... 6)
-                    .authInputFieldStyle()
+                AddressSearchField(
+                    placeholder: "Search station or command post address",
+                    helperText: "Enter the address of your fire station or command post",
+                    selectedAddress: $draft.stationAddress,
+                    onSelect: { details in
+                        draft.stationAddress = details.formattedAddress
+                        draft.addressVerified = true
+                    }
+                )
 
                 Text("Used to anchor your command map")
                     .font(.system(size: 13))
                     .foregroundColor(AppColors.textMuted)
 
-                if !draft.stationAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button {
-                        let t = draft.stationAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-                        formattedPreview = "📍 \(t) — Is this correct?"
-                        showAddressConfirm = true
-                    } label: {
-                        Text("Verify Address")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color(hex: "#d97706"))
-                            .foregroundColor(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if draft.addressVerified {
+                if draft.addressVerified, !draft.stationAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("✅ Address verified")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(AppColors.primary)
@@ -89,17 +72,6 @@ struct ResponderStep2StationInfo: View {
                 .opacity(canContinue ? 1 : 0.45)
             }
             .padding(20)
-        }
-        .alert("Verify address", isPresented: $showAddressConfirm) {
-            Button("Not quite") {
-                showAddressConfirm = false
-            }
-            Button("Yes, correct") {
-                draft.addressVerified = true
-                showAddressConfirm = false
-            }
-        } message: {
-            Text(formattedPreview)
         }
     }
 }

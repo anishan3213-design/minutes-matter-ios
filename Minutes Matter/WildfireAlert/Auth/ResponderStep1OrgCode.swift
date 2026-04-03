@@ -134,20 +134,15 @@ struct ResponderStep1OrgCode: View {
         errorMessage = nil
         verifySucceeded = nil
         defer { isVerifying = false }
-        do {
-            let ok = try await APIService.shared.verifyInviteCode(
-                code: trimmed,
-                role: "emergency_responder",
-                token: nil
-            )
-            verifySucceeded = ok
-            if ok {
-                draft.orgAccessCode = trimmed
-                draft.orgCodeVerified = true
-            }
-        } catch {
-            verifySucceeded = false
-            errorMessage = error.localizedDescription
+        let ok = await APIService.shared.verifyInviteCode(
+            code: trimmed,
+            role: "emergency_responder",
+            token: nil
+        )
+        verifySucceeded = ok
+        if ok {
+            draft.orgAccessCode = trimmed
+            draft.orgCodeVerified = true
         }
     }
 }

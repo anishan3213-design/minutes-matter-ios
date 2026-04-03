@@ -7,10 +7,20 @@ import Foundation
 
 enum AppConfig {
     /// Public Vercel deployment (no secret).
-    static let apiBaseURL = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app")!
+    private static let bundledWebURL: URL = {
+        guard let u = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app") else {
+            preconditionFailure("Invalid bundled web URL")
+        }
+        return u
+    }()
 
-    static let termsURL = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/terms")!
-    static let privacyURL = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/privacy")!
+    static let apiBaseURL = bundledWebURL
+
+    static let termsURL =
+        URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/terms") ?? bundledWebURL
+
+    static let privacyURL =
+        URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/privacy") ?? bundledWebURL
 
     // MARK: - Info.plist (client-safe keys only)
 
@@ -24,9 +34,11 @@ enum AppConfig {
         infoString("SUPABASE_ANON_KEY")
     }
 
-    /// For Places / address features when wired up; restrict keys by bundle ID in Google Cloud.
+    /// Google Places Web Service (autocomplete/details). Prefer `GOOGLE_PLACES_KEY`, else `GOOGLE_PLACES_API_KEY`.
     static var googlePlacesAPIKey: String? {
-        infoString("GOOGLE_PLACES_API_KEY")
+        if let k = infoString("GOOGLE_PLACES_KEY") { return k }
+        if let k = infoString("GOOGLE_PLACES_API_KEY") { return k }
+        return nil
     }
 
     static var googleGeocodingAPIKey: String? {

@@ -21,7 +21,7 @@ struct HubView: View {
     @State private var showFlameo = false
 
     private var isHomeAddressMissing: Bool {
-        let trimmed = authState.profile?.homeAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmed = authState.profile?.address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty
     }
 
@@ -59,9 +59,15 @@ struct HubView: View {
                                     .padding(.vertical, 24)
                             }
                             if showShelterCard, let top = viewModel.context?.sheltersRanked?.first {
-                                ShelterRouteCard(shelter: top) {
-                                    openDirections(lat: top.lat, lon: top.lon)
-                                }
+                                ShelterRouteCard(
+                                    shelter: top,
+                                    onOpenMaps: {
+                                        openDirections(lat: top.lat, lon: top.lon)
+                                    },
+                                    onSeeAllShelters: {
+                                        selectedTab = .map
+                                    }
+                                )
                             }
                             if !viewModel.people.isEmpty {
                                 MyPeopleStatusCard(people: viewModel.people) {
@@ -83,6 +89,7 @@ struct HubView: View {
         }
         .sheet(isPresented: $showFlameo) {
             FlameoSituationView(context: viewModel.context)
+                .environmentObject(authState)
         }
     }
 

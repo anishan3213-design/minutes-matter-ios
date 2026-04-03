@@ -1,6 +1,8 @@
 # Xcode
 Minutes Matter.xcodeproj/xcuserdata/
 *.xcuserstate
+.derivedData/
+.derivedDataBuild/
 
 # Web env with secrets (keep `wildfire-web.env` locally; use Vercel dashboard for production)
 wildfire-web.env

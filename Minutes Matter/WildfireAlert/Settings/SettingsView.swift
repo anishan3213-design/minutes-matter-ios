@@ -18,9 +18,6 @@ struct SettingsView: View {
     @State private var showMobilitySheet = false
     @State private var showSignOutConfirm = false
 
-    private let termsURL = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/terms")!
-    private let privacyURL = URL(string: "https://wildfire-app-layesh1s-projects.vercel.app/privacy")!
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -183,11 +180,11 @@ struct SettingsView: View {
             SectionLabel(text: "PRIVACY & DATA")
             VStack(spacing: 0) {
                 settingsNavigationRow(label: "View Terms of Service") {
-                    openURL(termsURL)
+                    openURL(AppConfig.termsURL)
                 }
                 rowDivider()
                 settingsNavigationRow(label: "View Privacy Policy") {
-                    openURL(privacyURL)
+                    openURL(AppConfig.privacyURL)
                 }
             }
             .background(Color(hex: "#1a1a1a"))
@@ -292,7 +289,7 @@ struct SettingsView: View {
     }
 
     private var addressLine: String {
-        let a = viewModel.profile?.homeAddress ?? authState.profile?.homeAddress
+        let a = viewModel.profile?.address ?? authState.profile?.address
         let s = a?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return s.isEmpty ? "Not set" : s
     }

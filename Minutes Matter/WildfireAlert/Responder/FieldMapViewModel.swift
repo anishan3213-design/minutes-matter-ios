@@ -27,13 +27,27 @@ final class FieldMapViewModel: ObservableObject {
         loadError = nil
         defer { isLoading = false }
 
+        #if DEBUG
+        print("[FieldMap] Loading households")
+        print("[FieldMap] Has token:", token != nil)
+        #endif
+
         do {
             let result = try await APIService.shared.fetchHouseholds(token: token)
+            #if DEBUG
+            print("[FieldMap] Loaded:", result.count, "households")
+            result.prefix(3).forEach { h in
+                print("[FieldMap] Pin:", h.address, "lat:", h.lat, "lng:", h.lng, "priority:", h.priority)
+            }
+            #endif
             households = result.sorted { a, b in
                 (priorityOrder[a.priority.uppercased()] ?? 4) < (priorityOrder[b.priority.uppercased()] ?? 4)
             }
             fitRegionIfNeeded()
         } catch {
+            #if DEBUG
+            print("[FieldMap] Error:", error)
+            #endif
             households = []
             loadError = error.localizedDescription
         }

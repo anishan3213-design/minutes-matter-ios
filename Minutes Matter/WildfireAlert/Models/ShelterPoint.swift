@@ -6,18 +6,19 @@
 import CoreLocation
 import Foundation
 
+/// Live shelter from `/api/shelters/live` — coordinates use **`lng`** (not `lon`).
 struct ShelterPoint: Codable, Identifiable {
     let id: String
     let name: String
     let lat: Double
-    let lon: Double
+    let lng: Double
     let verified: Bool?
     let capacity: Int?
     let currentOccupancy: Int?
     let distanceMiles: Double?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, lat, lon, verified, capacity
+        case id, name, lat, lng, lon, verified, capacity
         case currentOccupancy = "current_occupancy"
         case distanceMiles = "distance_miles"
     }
@@ -27,15 +28,33 @@ struct ShelterPoint: Codable, Identifiable {
         id = try c.decode(String.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         lat = try Self.decodeDouble(c, key: .lat)
-        lon = try Self.decodeDouble(c, key: .lon)
+        if let v = Self.decodeOptionalDouble(c, key: .lng) {
+            lng = v
+        } else if let v = Self.decodeOptionalDouble(c, key: .lon) {
+            lng = v
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .lng, in: c, debugDescription: "Missing lng/lon")
+        }
         verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
         capacity = try Self.decodeOptionalInt(c, key: .capacity)
         currentOccupancy = try Self.decodeOptionalInt(c, key: .currentOccupancy)
         distanceMiles = Self.decodeOptionalDouble(c, key: .distanceMiles)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(lat, forKey: .lat)
+        try c.encode(lng, forKey: .lng)
+        try c.encodeIfPresent(verified, forKey: .verified)
+        try c.encodeIfPresent(capacity, forKey: .capacity)
+        try c.encodeIfPresent(currentOccupancy, forKey: .currentOccupancy)
+        try c.encodeIfPresent(distanceMiles, forKey: .distanceMiles)
+    }
+
     var coordinate: CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
     private static func decodeDouble(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) throws -> Double {

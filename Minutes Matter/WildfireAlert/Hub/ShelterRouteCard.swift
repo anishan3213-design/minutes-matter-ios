@@ -8,6 +8,7 @@ import SwiftUI
 struct ShelterRouteCard: View {
     let shelter: FlameoShelter
     let onOpenMaps: () -> Void
+    var onSeeAllShelters: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -62,8 +63,10 @@ struct ShelterRouteCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
 
-                Button(action: {}) {
-                    Text("See all shelters")
+                Button {
+                    onSeeAllShelters?()
+                } label: {
+                    Text("See all shelters →")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(AppColors.textSecondary)
                         .frame(maxWidth: .infinity)
@@ -75,8 +78,7 @@ struct ShelterRouteCard: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
-                .disabled(true)
-                .opacity(0.55)
+                .buttonStyle(.plain)
             }
         }
         .hubCardStyle()

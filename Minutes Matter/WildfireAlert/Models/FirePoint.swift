@@ -32,6 +32,17 @@ struct FirePoint: Codable, Identifiable {
         source = try c.decodeIfPresent(String.self, forKey: .source)
     }
 
+    /// Synthetic fire (e.g. GeoJSON feature) when decoding outside `Codable`.
+    init(id: String, name: String?, lat: Double, lon: Double, containmentPct: Double?, acresBurned: Double?, source: String?) {
+        self.id = id
+        self.name = name
+        self.lat = lat
+        self.lon = lon
+        self.containmentPct = containmentPct
+        self.acresBurned = acresBurned
+        self.source = source
+    }
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }

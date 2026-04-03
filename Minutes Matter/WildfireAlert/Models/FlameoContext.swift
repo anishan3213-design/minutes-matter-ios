@@ -67,7 +67,7 @@ struct FlameoIncident: Decodable {
     let source: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, lat, lon, source
+        case id, name, lat, lon, lng, source
         case distanceMiles = "distance_miles"
     }
 
@@ -76,9 +76,19 @@ struct FlameoIncident: Decodable {
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         lat = try Self.decodeFlexibleDoubleRequired(c, key: .lat)
-        lon = try Self.decodeFlexibleDoubleRequired(c, key: .lon)
+        if let v = try? Self.decodeFlexibleDoubleRequired(c, key: .lon) {
+            lon = v
+        } else {
+            lon = try Self.decodeFlexibleDoubleRequired(c, key: .lng)
+        }
         source = try c.decodeIfPresent(String.self, forKey: .source)
-        distanceMiles = try Self.decodeFlexibleDoubleRequired(c, key: .distanceMiles)
+        if let d = try? c.decode(Double.self, forKey: .distanceMiles) {
+            distanceMiles = d
+        } else if let i = try? c.decode(Int.self, forKey: .distanceMiles) {
+            distanceMiles = Double(i)
+        } else {
+            distanceMiles = 0
+        }
     }
 
     private static func decodeFlexibleDoubleRequired(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) throws -> Double {
@@ -125,26 +135,31 @@ struct FlameoShelter: Decodable {
     let routeSummary: String?
     let routeAvoidsFire: Bool?
     let verified: Bool?
+    let phone: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, lat, lon
+        case name, lat, lon, lng, verified, phone
         case travelMinutes = "travel_minutes"
         case distanceMiles = "distance_miles"
         case routeSummary = "route_summary"
         case routeAvoidsFire = "route_avoids_fire"
-        case verified
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
         lat = try Self.decodeFlexibleDoubleRequired(c, key: .lat)
-        lon = try Self.decodeFlexibleDoubleRequired(c, key: .lon)
+        if let v = try? Self.decodeFlexibleDoubleRequired(c, key: .lon) {
+            lon = v
+        } else {
+            lon = try Self.decodeFlexibleDoubleRequired(c, key: .lng)
+        }
         travelMinutes = Self.decodeFlexibleDouble(c, key: .travelMinutes)
         distanceMiles = Self.decodeFlexibleDouble(c, key: .distanceMiles)
         routeSummary = try c.decodeIfPresent(String.self, forKey: .routeSummary)
         routeAvoidsFire = try c.decodeIfPresent(Bool.self, forKey: .routeAvoidsFire)
         verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
     }
 
     private static func decodeFlexibleDoubleRequired(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) throws -> Double {
@@ -165,10 +180,12 @@ struct FlameoHazard: Decodable {
     let name: String
     let type: String
     let distanceMiles: Double
+    let riskNote: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type
         case distanceMiles = "distance_miles"
+        case riskNote = "risk_note"
     }
 
     init(from decoder: Decoder) throws {
@@ -183,15 +200,18 @@ struct FlameoHazard: Decodable {
         } else {
             distanceMiles = 0
         }
+        riskNote = try c.decodeIfPresent(String.self, forKey: .riskNote)
     }
 }
 
 struct FlameoFlags: Codable {
     let hasConfirmedThreat: Bool?
     let noData: Bool?
+    let feedsUnavailable: Bool?
 
     enum CodingKeys: String, CodingKey {
         case hasConfirmedThreat = "has_confirmed_threat"
         case noData = "no_data"
+        case feedsUnavailable = "feeds_unavailable"
     }
 }

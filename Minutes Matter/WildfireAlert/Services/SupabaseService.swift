@@ -16,20 +16,20 @@ enum SupabaseConfigurationError: LocalizedError {
 
 final class SupabaseService {
     static let shared: SupabaseService = {
-        do {
-            return try SupabaseService()
-        } catch {
-            fatalError("SupabaseService.shared requires SUPABASE_URL and SUPABASE_ANON_KEY in Info.plist.")
+        if let url = AppConfig.supabaseURL, let key = AppConfig.supabaseAnonKey {
+            return SupabaseService(url: url, supabaseKey: key)
         }
+        print("[SupabaseService] WARNING: Missing SUPABASE_URL or SUPABASE_ANON_KEY — using placeholder client.")
+        guard let placeholderURL = URL(string: "https://placeholder.supabase.co") else {
+            preconditionFailure("Invalid placeholder Supabase URL")
+        }
+        return SupabaseService(url: placeholderURL, supabaseKey: "placeholder")
     }()
 
     private let client: SupabaseClient
 
-    init() throws {
-        guard let url = AppConfig.supabaseURL, let key = AppConfig.supabaseAnonKey else {
-            throw SupabaseConfigurationError.missingCredentials
-        }
-        client = SupabaseClient(supabaseURL: url, supabaseKey: key)
+    private init(url: URL, supabaseKey: String) {
+        client = SupabaseClient(supabaseURL: url, supabaseKey: supabaseKey)
     }
 
     var supabase: SupabaseClient { client }
@@ -78,6 +78,25 @@ final class SupabaseService {
         try await client.from("profiles").upsert(row).execute()
     }
 
+    /// Single-call responder profile upsert (same payload as `upsertResponderProfile`).
+    func createResponderProfile(
+        userId: UUID,
+        fullName: String,
+        email: String,
+        orgName: String,
+        stationAddress: String,
+        phone: String?
+    ) async throws {
+        try await upsertResponderProfile(
+            userId: userId,
+            fullName: fullName,
+            email: email,
+            orgName: orgName,
+            stationAddress: stationAddress,
+            phone: phone
+        )
+    }
+
     func createProfile(userId: UUID, fullName: String, email: String) async throws {
         let row = CreateProfileUpsert(
             id: userId.uuidString,
@@ -90,6 +109,13 @@ final class SupabaseService {
 
     func signOut() async throws {
         try await client.auth.signOut()
+    }
+
+    func resetPasswordForEmail(_ email: String) async throws {
+        try await client.auth.resetPasswordForEmail(
+            email,
+            redirectTo: AppConfig.apiBaseURL
+        )
     }
 
     func fetchProfile(userId: UUID) async throws -> UserProfile {
@@ -198,18 +224,26 @@ final class SupabaseService {
         evacuationConsent: Bool,
         healthConsent: Bool
     ) async throws {
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let formatter = ISO8601DateFormatter()
+        let now = formatter.string(from: Date())
         let patch = ConsentsPatch(
             location_sharing_consent: locationConsent,
             evacuation_status_consent: evacuationConsent,
             health_data_consent: healthConsent,
-            terms_accepted_at: ts
+            terms_accepted_at: now,
+            responder_data_consent: locationConsent && evacuationConsent
         )
-        try await client
-            .from("profiles")
-            .update(patch)
-            .eq("id", value: userId.uuidString)
-            .execute()
+        do {
+            try await client
+                .from("profiles")
+                .update(patch)
+                .eq("id", value: userId.uuidString)
+                .execute()
+            print("[Supabase] consents saved successfully")
+        } catch {
+            print("[Supabase] consent save error:", error)
+            throw error
+        }
     }
 
     func updateHomeEvacuationStatus(userId: UUID, status: String) async throws {
@@ -251,7 +285,7 @@ final class SupabaseService {
     }
 
     func updateAddress(userId: UUID, address: String) async throws {
-        let patch = HomeAddressPatch(home_address: address)
+        let patch = ProfileAddressPatch(address: address)
         try await client
             .from("profiles")
             .update(patch)
@@ -304,10 +338,11 @@ private struct ConsentsPatch: Encodable {
     let evacuation_status_consent: Bool
     let health_data_consent: Bool
     let terms_accepted_at: String
+    let responder_data_consent: Bool
 }
 
-private struct HomeAddressPatch: Encodable {
-    let home_address: String
+private struct ProfileAddressPatch: Encodable {
+    let address: String
 }
 
 private struct MobilityMedicalPatch: Encodable {

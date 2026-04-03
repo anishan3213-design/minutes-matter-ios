@@ -13,11 +13,13 @@ private enum FirefighterTab: Hashable {
 }
 
 struct FirefighterTabView: View {
+    @EnvironmentObject private var authState: AuthState
     @State private var selected: FirefighterTab = .fieldMap
 
     var body: some View {
         TabView(selection: $selected) {
             FieldMapView()
+                .environmentObject(authState)
                 .tabItem {
                     Label("Field Map", systemImage: "map.fill")
                 }
@@ -25,7 +27,9 @@ struct FirefighterTabView: View {
 
             NavigationStack {
                 AssignmentsView()
+                    .environmentObject(authState)
             }
+            .environmentObject(authState)
             .tabItem {
                 Label("Assignments", systemImage: "list.bullet.clipboard")
             }
@@ -33,7 +37,9 @@ struct FirefighterTabView: View {
 
             NavigationStack {
                 ResponderSettingsView()
+                    .environmentObject(authState)
             }
+            .environmentObject(authState)
             .tabItem {
                 Label("Settings", systemImage: "gear")
             }

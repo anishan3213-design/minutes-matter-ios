@@ -7,6 +7,8 @@ import Foundation
 
 enum APIServiceError: LocalizedError {
     case invalidURL
+    case invalidResponse
+    case unauthorized
     case httpStatus(code: Int, body: String?)
     case decodingFailed
 
@@ -14,6 +16,10 @@ enum APIServiceError: LocalizedError {
         switch self {
         case .invalidURL:
             return "Invalid API URL."
+        case .invalidResponse:
+            return "Invalid server response."
+        case .unauthorized:
+            return "Session expired. Sign in again."
         case let .httpStatus(code, body):
             return "Request failed (\(code)): \(body ?? "")"
         case .decodingFailed:
@@ -37,8 +43,58 @@ final class APIService {
         self.urlSession = urlSession
     }
 
+    private func debugLog(_ label: String, data: Data) {
+        #if DEBUG
+        let preview = String(data: data, encoding: .utf8).map { String($0.prefix(300)) } ?? "binary"
+        print("[API] \(label):", preview)
+        #endif
+    }
+
+    /// Builds a request; adds `Authorization` only when `token` is non-empty after trimming.
+    private func makeRequest(url: URL, method: String, token: String?, body: Data?) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let t = token?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            request.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
+        }
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        return request
+    }
+
     func fetchFlameoContext(accessToken: String?) async throws -> FlameoContext {
-        try await get(path: "/api/flameo/context", accessToken: accessToken)
+        guard let url = URL(string: "/api/flameo/context", relativeTo: baseURL) else {
+            throw APIServiceError.invalidURL
+        }
+        #if DEBUG
+        let hasToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        print("[API] GET /api/flameo/context token:", hasToken ? "present" : "nil")
+        #endif
+        let request = makeRequest(url: url, method: "GET", token: accessToken, body: nil)
+        let (data, response) = try await urlSession.data(for: request)
+        debugLog("flameo/context", data: data)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIServiceError.invalidResponse
+        }
+        if http.statusCode == 401 {
+            throw APIServiceError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            let text = String(data: data, encoding: .utf8)
+            throw APIServiceError.httpStatus(code: http.statusCode, body: text)
+        }
+        do {
+            return try Self.jsonDecoder.decode(FlameoContext.self, from: data)
+        } catch {
+            #if DEBUG
+            print("[API] flameo/context decode error:", error)
+            #endif
+            throw APIServiceError.decodingFailed
+        }
     }
 
     private func get<T: Decodable>(path: String, accessToken: String?) async throws -> T {
@@ -46,35 +102,165 @@ final class APIService {
         do {
             return try Self.jsonDecoder.decode(T.self, from: data)
         } catch {
+            #if DEBUG
+            print("[API] GET decode failed", path, error)
+            debugLog("decode_error", data: data)
+            #endif
             throw APIServiceError.decodingFailed
         }
     }
 
-    func fetchActiveFires() async throws -> [FirePoint] {
-        let data = try await request(path: "/api/active-fires", method: "GET", accessToken: nil, body: nil)
-        if let list = try? Self.jsonDecoder.decode([FirePoint].self, from: data) {
-            return list
+    /// Returns fires or empty array on HTTP/decode failure (never throws).
+    func fetchActiveFires(accessToken: String? = nil) async -> [FirePoint] {
+        guard let url = URL(string: "/api/active-fires", relativeTo: baseURL) else {
+            #if DEBUG
+            print("[fires] invalid base URL")
+            #endif
+            return []
         }
+        let req = makeRequest(url: url, method: "GET", token: accessToken, body: nil)
         do {
-            let wrapped = try Self.jsonDecoder.decode(ActiveFiresEnvelope.self, from: data)
-            return wrapped.fires ?? wrapped.data ?? []
+            let (data, response) = try await urlSession.data(for: req)
+            #if DEBUG
+            if let str = String(data: data, encoding: .utf8) {
+                print("[fires] raw:", String(str.prefix(400)))
+            }
+            let sc = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("[API] GET /api/active-fires HTTP:", sc)
+            #endif
+            guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
+                #if DEBUG
+                print("[fires] non-2xx or invalid response")
+                #endif
+                return []
+            }
+            if let fires = try? Self.jsonDecoder.decode([FirePoint].self, from: data), !fires.isEmpty {
+                #if DEBUG
+                print("[fires] decoded \(fires.count) direct")
+                #endif
+                return fires
+            }
+            struct ActiveFiresEnvelope: Decodable {
+                let fires: [FirePoint]?
+                let data: [FirePoint]?
+                let features: [GeoJSONFireFeature]?
+            }
+            struct GeoJSONFireFeature: Decodable {
+                let properties: FireGeoProperties?
+                let geometry: FireGeoGeometry?
+            }
+            struct FireGeoProperties: Decodable {
+                let id: String?
+                let name: String?
+                let source: String?
+                let containmentPct: Double?
+                let acresBurned: Double?
+
+                enum CodingKeys: String, CodingKey {
+                    case id, name, source
+                    case containmentPct = "containment_pct"
+                    case acresBurned = "acres_burned"
+                }
+
+                init(from decoder: Decoder) throws {
+                    let c = try decoder.container(keyedBy: CodingKeys.self)
+                    id = try c.decodeIfPresent(String.self, forKey: .id)
+                    name = try c.decodeIfPresent(String.self, forKey: .name)
+                    source = try c.decodeIfPresent(String.self, forKey: .source)
+                    containmentPct = Self.flexDouble(c, .containmentPct)
+                    acresBurned = Self.flexDouble(c, .acresBurned)
+                }
+
+                private static func flexDouble(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double? {
+                    if let d = try? c.decode(Double.self, forKey: key) { return d }
+                    if let i = try? c.decode(Int.self, forKey: key) { return Double(i) }
+                    return nil
+                }
+            }
+            struct FireGeoGeometry: Decodable {
+                let type: String?
+                let coordinates: [Double]?
+
+                enum CodingKeys: String, CodingKey {
+                    case type, coordinates
+                }
+
+                init(from decoder: Decoder) throws {
+                    let c = try decoder.container(keyedBy: CodingKeys.self)
+                    type = try c.decodeIfPresent(String.self, forKey: .type)
+                    coordinates = try? c.decode([Double].self, forKey: .coordinates)
+                }
+            }
+
+            if let env = try? Self.jsonDecoder.decode(ActiveFiresEnvelope.self, from: data) {
+                if let fires = env.fires ?? env.data, !fires.isEmpty {
+                    #if DEBUG
+                    print("[fires] decoded \(fires.count) envelope")
+                    #endif
+                    return fires
+                }
+                if let feats = env.features, !feats.isEmpty {
+                    let mapped: [FirePoint] = feats.compactMap { f in
+                        guard let coords = f.geometry?.coordinates, coords.count >= 2 else { return nil }
+                        let lon = coords[0]
+                        let lat = coords[1]
+                        let p = f.properties
+                        let id = p?.id ?? String(format: "%.5f,%.5f", lat, lon)
+                        return FirePoint(
+                            id: id,
+                            name: p?.name,
+                            lat: lat,
+                            lon: lon,
+                            containmentPct: p?.containmentPct,
+                            acresBurned: p?.acresBurned,
+                            source: p?.source
+                        )
+                    }
+                    if !mapped.isEmpty {
+                        #if DEBUG
+                        print("[fires] decoded \(mapped.count) from GeoJSON features")
+                        #endif
+                        return mapped
+                    }
+                }
+            }
+            #if DEBUG
+            print("[fires] no fires decoded from response")
+            #endif
+            return []
         } catch {
-            throw APIServiceError.decodingFailed
+            #if DEBUG
+            print("[fires] request error:", error)
+            #endif
+            return []
         }
     }
 
-    func fetchLiveShelters(state: String = "NC") async throws -> [ShelterPoint] {
+    /// Best-effort: returns `[]` on HTTP/decode failures (logged in DEBUG) so the map still loads fires.
+    func fetchLiveShelters(state: String = "NC", accessToken: String? = nil) async throws -> [ShelterPoint] {
         let encoded = state.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? state
         let path = "/api/shelters/live?state=\(encoded)"
-        let data = try await request(path: path, method: "GET", accessToken: nil, body: nil)
-        if let list = try? Self.jsonDecoder.decode([ShelterPoint].self, from: data) {
-            return list
-        }
         do {
-            let envelope = try Self.jsonDecoder.decode(SheltersLiveEnvelope.self, from: data)
-            return envelope.shelters
+            let data = try await request(path: path, method: "GET", accessToken: accessToken, body: nil)
+            debugLog("shelters/live", data: data)
+            if let list = try? Self.jsonDecoder.decode([ShelterPoint].self, from: data) {
+                return list
+            }
+            struct SheltersEnvelope: Decodable {
+                let shelters: [ShelterPoint]?
+            }
+            if let envelope = try? Self.jsonDecoder.decode(SheltersEnvelope.self, from: data) {
+                return envelope.shelters ?? []
+            }
+            #if DEBUG
+            print("[API] shelters/live: decode failed")
+            #endif
+            return []
         } catch {
-            throw APIServiceError.decodingFailed
+            #if DEBUG
+            print("[API] shelters/live error:", error)
+            #endif
+            return []
         }
     }
 
@@ -108,24 +294,55 @@ final class APIService {
 
     // MARK: - Emergency responder / station
 
-    func verifyInviteCode(code: String, role: String, token: String?) async throws -> Bool {
-        struct Body: Encodable {
+    func verifyInviteCode(code: String, role: String, token: String?) async -> Bool {
+        struct VerifyBody: Encodable {
             let code: String
             let role: String
         }
 
-        let data = try await request(
-            path: "/api/invite/verify",
-            method: "POST",
-            accessToken: token,
-            body: try Self.jsonEncoder.encode(Body(code: code, role: role))
-        )
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let valid = json["valid"] as? Bool { return valid }
-            if let ok = json["ok"] as? Bool { return ok }
-            if let success = json["success"] as? Bool { return success }
+        struct VerifyResponse: Decodable {
+            let valid: Bool?
+            let ok: Bool?
+            let success: Bool?
+            let verified: Bool?
         }
-        return true
+
+        guard let url = URL(string: "/api/invite/verify", relativeTo: baseURL) else {
+            #if DEBUG
+            print("[API] verifyInviteCode: invalid URL")
+            #endif
+            return false
+        }
+        do {
+            let body = try Self.jsonEncoder.encode(VerifyBody(code: code, role: role))
+            let req = makeRequest(url: url, method: "POST", token: token, body: body)
+            let (data, response) = try await urlSession.data(for: req)
+            guard let http = response as? HTTPURLResponse else { return false }
+            #if DEBUG
+            print("[API] POST /api/invite/verify HTTP:", http.statusCode)
+            if let s = String(data: data, encoding: .utf8) {
+                print("[API] verifyInviteCode body:", String(s.prefix(400)))
+            }
+            #endif
+            if http.statusCode == 400 || http.statusCode == 404 || http.statusCode == 401 {
+                return false
+            }
+            guard (200 ... 299).contains(http.statusCode) else {
+                return false
+            }
+            if let decoded = try? Self.jsonDecoder.decode(VerifyResponse.self, from: data) {
+                return decoded.valid == true
+                    || decoded.ok == true
+                    || decoded.success == true
+                    || decoded.verified == true
+            }
+            return http.statusCode == 200
+        } catch {
+            #if DEBUG
+            print("[API] verifyInviteCode error:", error)
+            #endif
+            return false
+        }
     }
 
     func validateStationInvite(code: String, token: String?) async throws -> StationInviteValidation {
@@ -184,11 +401,13 @@ final class APIService {
             let commandContext: FlameoCommandContext
         }
 
+        let briefingEncoder = JSONEncoder()
+        briefingEncoder.keyEncodingStrategy = .convertToSnakeCase
         let data = try await request(
             path: "/api/flameo/command-briefing",
             method: "POST",
             accessToken: token,
-            body: try Self.jsonEncoder.encode(Body(commandContext: context))
+            body: try briefingEncoder.encode(Body(commandContext: context))
         )
         struct BriefingEnvelope: Decodable {
             let briefing: String?
@@ -219,7 +438,9 @@ final class APIService {
                 body: data
             )
         } catch {
-            // Fire-and-forget
+            #if DEBUG
+            print("[API] PATCH /api/station/firefighter/location error:", error)
+            #endif
         }
     }
 
@@ -269,43 +490,22 @@ final class APIService {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIServiceError.invalidURL
         }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-        if let accessToken {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        }
+        let request = makeRequest(url: url, method: method, token: accessToken, body: body)
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIServiceError.httpStatus(code: -1, body: nil)
         }
+        #if DEBUG
+        print("[API]", method, path, "HTTP:", http.statusCode)
+        #endif
         guard (200 ... 299).contains(http.statusCode) else {
             let text = String(data: data, encoding: .utf8)
+            #if DEBUG
+            print("[API] error body:", text?.prefix(400) ?? "")
+            #endif
             throw APIServiceError.httpStatus(code: http.statusCode, body: text)
         }
         return data
-    }
-}
-
-private struct ActiveFiresEnvelope: Decodable {
-    let fires: [FirePoint]?
-    let data: [FirePoint]?
-}
-
-private struct SheltersLiveEnvelope: Decodable {
-    let shelters: [ShelterPoint]
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        shelters = try c.decodeIfPresent([ShelterPoint].self, forKey: .shelters) ?? []
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case shelters
     }
 }
 

@@ -3,7 +3,6 @@
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
 struct HomeStatusCard: View {
@@ -61,7 +60,7 @@ struct HomeStatusCard: View {
     @ViewBuilder
     private var saveHomeButton: some View {
         Button {
-            guard let id = authState.currentUser?.id else { return }
+            guard let id = authState.currentUserId else { return }
             Task {
                 await viewModel.saveHomeStatus(userId: id, token: nil, auth: authState)
             }

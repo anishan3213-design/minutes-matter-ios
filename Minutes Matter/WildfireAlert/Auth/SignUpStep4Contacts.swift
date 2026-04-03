@@ -1,12 +1,11 @@
 //
-//  SignUpStep2Info.swift
+//  SignUpStep4Contacts.swift
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
-struct SignUpStep2Info: View {
+struct SignUpStep4Contacts: View {
     @EnvironmentObject private var authState: AuthState
 
     @State private var phone = ""
@@ -21,8 +20,8 @@ struct SignUpStep2Info: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             signUpScreenChrome(
-                title: "Tell us about yourself",
-                subtitle: "This helps us personalize your experience"
+                title: "Emergency contacts",
+                subtitle: "Optional — who should we contact in an emergency?"
             )
 
             fieldLabel("Phone number (optional)")
@@ -84,7 +83,10 @@ struct SignUpStep2Info: View {
 
     private func save(advance: Bool) async {
         errorMessage = nil
-        guard let uid = authState.currentUser?.id else { return }
+        guard let uid = authState.currentUserId else {
+            errorMessage = "Session error. Please try again."
+            return
+        }
         isSaving = true
         defer { isSaving = false }
         do {

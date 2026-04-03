@@ -1,21 +1,43 @@
 //
 //  MapView.swift
-//  Minutes Matter
 //
 
 import Combine
 import CoreLocation
 import MapKit
 import SwiftUI
+import UIKit
 
-struct MapUserCoord: Equatable {
-    let lat: Double
-    let lon: Double
+// MARK: - Annotation bridge (stable IDs for SwiftUI `Map`)
+
+struct MapAnnotationItem: Identifiable {
+    enum AnnotationType {
+        case fire(FirePoint)
+        case shelter(ShelterPoint)
+    }
+
+    let type: AnnotationType
+
+    var id: String {
+        switch type {
+        case let .fire(f): return "fire-\(f.id)"
+        case let .shelter(s): return "shelter-\(s.id)"
+        }
+    }
+
+    var coordinate: CLLocationCoordinate2D {
+        switch type {
+        case let .fire(f): return f.coordinate
+        case let .shelter(s): return s.coordinate
+        }
+    }
 }
 
+// MARK: - Location
+
 final class MapLocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    @Published var userCoordinate: MapUserCoord?
     private let manager = CLLocationManager()
+    @Published var coordinate: CLLocationCoordinate2D?
 
     override init() {
         super.init()
@@ -23,296 +45,333 @@ final class MapLocationManager: NSObject, ObservableObject, CLLocationManagerDel
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func requestWhenInUseAndStart() {
-        manager.requestWhenInUseAuthorization()
-        switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            manager.startUpdatingLocation()
-        case .notDetermined:
-            break
-        default:
-            break
+    func requestPermission() {
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
         }
-    }
-
-    func startUpdatesIfAuthorized() {
-        if manager.authorizationStatus == .authorizedWhenInUse ||
-            manager.authorizationStatus == .authorizedAlways {
+        if manager.authorizationStatus == .authorizedWhenInUse
+            || manager.authorizationStatus == .authorizedAlways {
             manager.startUpdatingLocation()
         }
     }
 
-    func locationManager(_: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let c = locations.last?.coordinate else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.userCoordinate = MapUserCoord(lat: c.latitude, lon: c.longitude)
-        }
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        coordinate = locations.last?.coordinate
+        manager.stopUpdatingLocation()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        startUpdatesIfAuthorized()
+        if manager.authorizationStatus == .authorizedWhenInUse
+            || manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
     }
 }
 
+// MARK: - Map screen
+
 struct MapView: View {
+    @EnvironmentObject private var authState: AuthState
     @StateObject private var viewModel = MapViewModel()
-    @StateObject private var locationManager = MapLocationManager()
-    @State private var selectedPin: MapPinItem?
-    @State private var pendingLocate = false
+    @StateObject private var locationMgr = MapLocationManager()
+    @State private var selectedFire: FirePoint?
+    @State private var selectedShelter: ShelterPoint?
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            ZStack {
-                Map(
-                    coordinateRegion: $viewModel.region,
-                    interactionModes: [.pan, .zoom],
-                    showsUserLocation: true,
-                    annotationItems: viewModel.pins
-                ) { item in
-                    MapAnnotation(coordinate: item.coordinate) {
-                        pinView(for: item)
+        ZStack {
+            Map(
+                coordinateRegion: $viewModel.region,
+                interactionModes: [.pan, .zoom],
+                showsUserLocation: true,
+                annotationItems: mapAnnotations
+            ) { item in
+                MapAnnotation(coordinate: item.coordinate) {
+                    switch item.type {
+                    case let .fire(fire):
+                        FireAnnotation(fire: fire, isSelected: selectedFire?.id == fire.id) {
+                            selectedFire = fire
+                            selectedShelter = nil
+                        }
+                    case let .shelter(shelter):
+                        ShelterAnnotation(shelter: shelter, isSelected: selectedShelter?.id == shelter.id) {
+                            selectedShelter = shelter
+                            selectedFire = nil
+                        }
                     }
                 }
+            }
 
-                if viewModel.showHazards {
-                    VStack {
-                        Text("Hazard layers coming soon.")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(AppColors.textSecondary)
-                            .padding(10)
-                            .background(AppColors.card.opacity(0.95))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(AppColors.border, lineWidth: 1)
-                            )
-                        Spacer()
-                    }
-                    .padding(.top, 12)
-                    .allowsHitTesting(false)
-                }
-
-                if !viewModel.isLoading, viewModel.fires.isEmpty,
-                   !viewModel.showShelters || viewModel.shelters.isEmpty {
-                    Text("No fires to show. Pull refresh or check back later.")
-                        .font(.system(size: 15))
-                        .foregroundColor(AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(20)
-                        .background(AppColors.card.opacity(0.92))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(AppColors.border, lineWidth: 1)
-                        )
-                        .padding(24)
-                        .allowsHitTesting(false)
-                }
-
-                if viewModel.isLoading {
-                    ProgressView()
-                        .tint(AppColors.primary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black.opacity(0.15))
-                        .allowsHitTesting(false)
-                }
-
+            if viewModel.isLoading {
                 VStack {
                     Spacer()
-                    HStack(alignment: .bottom) {
-                        legendCard
-                        Spacer()
-                        locateButton
+                    HStack {
+                        ProgressView()
+                            .tint(.white)
+                        Text("Loading fire data...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
                     }
                     .padding(12)
+                    .background(Color(hex: "#1a1a1a").opacity(0.9))
+                    .cornerRadius(10)
+                    .padding(.bottom, 100)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let error = viewModel.fireError {
+                VStack {
+                    Spacer()
+                    Text("⚠️ \(error)")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(hex: "#fbbf24"))
+                        .padding(12)
+                        .background(Color(hex: "#1a1a1a").opacity(0.9))
+                        .cornerRadius(10)
+                        .padding(.bottom, 100)
+                }
+            }
+
+            VStack {
+                HStack {
+                    Text("Map")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    Button {
+                        viewModel.showShelters.toggle()
+                    } label: {
+                        Text("Shelters")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(viewModel.showShelters ? Color(hex: "#16a34a") : Color(hex: "#1a1a1a"))
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(
+                                        viewModel.showShelters ? Color(hex: "#16a34a") : Color(hex: "#2a2a2a"),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        locationMgr.requestPermission()
+                        if let coord = locationMgr.coordinate {
+                            viewModel.centerOnUser(coord)
+                        }
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "#16a34a"))
+                            .padding(8)
+                            .background(Color(hex: "#1a1a1a"))
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        Task { await loadMapData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "#9ca3af"))
+                            .padding(8)
+                            .background(Color(hex: "#1a1a1a"))
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(hex: "#1a1a1a"))
+
+                Spacer()
+
+                legendView
+                    .padding(.bottom, 90)
+                    .padding(.horizontal, 16)
+            }
+
+            if let fire = selectedFire {
+                fireCallout(fire: fire)
+            }
+
+            if let shelter = selectedShelter {
+                shelterCallout(shelter: shelter)
+            }
         }
         .background(Color(hex: "#0f0f0f"))
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let pin = selectedPin {
-                calloutCard(for: pin)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-            }
+        .ignoresSafeArea(edges: .bottom)
+        .onAppear {
+            Task { await loadMapData() }
+            locationMgr.requestPermission()
         }
-        .task {
-            await viewModel.load()
-        }
-        .onChange(of: locationManager.userCoordinate) { newValue in
-            guard pendingLocate, let c = newValue else { return }
-            viewModel.centerOnUser(CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon))
-            pendingLocate = false
+        .refreshable {
+            await loadMapData()
         }
     }
 
-    private var toolbar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("Map")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundColor(Color(hex: "#ffffff"))
-            Spacer(minLength: 8)
-            mapToolbarChip(title: "Shelters", isSelected: viewModel.showShelters) {
-                viewModel.showShelters.toggle()
-            }
-            mapToolbarChip(title: "Hazards", isSelected: viewModel.showHazards) {
-                viewModel.showHazards.toggle()
-            }
-            Button {
-                Task { await viewModel.load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color(hex: "#16a34a"))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(Color(hex: "#1a1a1a"))
+    private func loadMapData() async {
+        let token = try? await authState.accessToken()
+        #if DEBUG
+        print("[Map] loadMapData token:", token != nil ? "present" : "nil")
+        #endif
+        await viewModel.load(accessToken: token)
     }
 
-    private func mapToolbarChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color(hex: "#ffffff"))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color(hex: "#16a34a") : Color(hex: "#1a1a1a"))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.clear : Color(hex: "#2a2a2a"), lineWidth: 1)
-                )
-                .cornerRadius(8)
+    private var mapAnnotations: [MapAnnotationItem] {
+        var items: [MapAnnotationItem] = viewModel.fires.map { MapAnnotationItem(type: .fire($0)) }
+        if viewModel.showShelters {
+            items += viewModel.shelters.map { MapAnnotationItem(type: .shelter($0)) }
         }
-        .buttonStyle(.plain)
+        return items
     }
 
-    private var legendCard: some View {
+    private var legendView: some View {
         VStack(alignment: .leading, spacing: 6) {
-            legendRow(color: Color(hex: "#dc2626"), text: "Active threat")
-            legendRow(color: Color(hex: "#f97316"), text: "Spreading")
-            legendRow(color: Color(hex: "#eab308"), text: "Being controlled")
-            legendRow(color: Color(hex: "#22c55e"), text: "Mostly contained")
-            HStack(spacing: 6) {
-                Text("♥")
-                    .foregroundColor(AppColors.primary)
-                Text("Open shelter (verified)")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "#9ca3af"))
+            Text("LEGEND")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Color(hex: "#6b7280"))
+                .tracking(1)
+
+            legendRow(color: "#dc2626", label: "Active threat (<25%)")
+            legendRow(color: "#f97316", label: "Spreading (25-50%)")
+            legendRow(color: "#eab308", label: "Controlled (50-75%)")
+            legendRow(color: "#22c55e", label: "Contained (75%+)")
+            if viewModel.showShelters {
+                legendRow(color: "#16a34a", label: "Open shelter ✅", shape: "heart.fill")
+                legendRow(color: "#6b7280", label: "Pre-identified 📍", shape: "heart")
             }
         }
         .padding(12)
+        .background(Color(hex: "#1a1a1a").opacity(0.92))
+        .cornerRadius(10)
         .frame(maxWidth: 200, alignment: .leading)
-        .background(Color(hex: "#1a1a1a"))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: "#2a2a2a"), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func legendRow(color: Color, text: String) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
-                .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 0.5))
-            Text(text)
-                .font(.system(size: 13))
+    private func legendRow(color: String, label: String, shape: String = "circle.fill") -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: shape)
+                .font(.system(size: 10))
+                .foregroundColor(Color(hex: color))
+            Text(label)
+                .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#9ca3af"))
         }
     }
 
-    private var locateButton: some View {
-        Button {
-            pendingLocate = true
-            locationManager.requestWhenInUseAndStart()
-            if let c = locationManager.userCoordinate {
-                viewModel.centerOnUser(CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon))
-                pendingLocate = false
-            }
-        } label: {
-            Image(systemName: "location.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(Color(hex: "#ffffff"))
-                .frame(width: 48, height: 48)
-                .background(AppColors.primary)
-                .clipShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Locate me")
-    }
-
-    @ViewBuilder
-    private func pinView(for item: MapPinItem) -> some View {
-        let selected = selectedPin?.id == item.id
-        switch item {
-        case let .fire(fire):
-            FireAnnotation(fire: fire, isSelected: selected) {
-                selectedPin = selected ? nil : item
-            }
-        case let .shelter(shelter):
-            ShelterAnnotation(shelter: shelter, isSelected: selected) {
-                selectedPin = selected ? nil : item
-            }
-        }
-    }
-
-    private func calloutCard(for item: MapPinItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                switch item {
-                case let .fire(f):
-                    Text(f.name ?? "Active fire")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                case let .shelter(s):
-                    Text(s.name)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary)
+    private func fireCallout(fire: FirePoint) -> some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(fire.name ?? "Active Fire")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Button {
+                        selectedFire = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundColor(Color(hex: "#6b7280"))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
+
+                HStack(spacing: 16) {
+                    if let pct = fire.containmentPct {
+                        Label("\(Int(pct))% contained", systemImage: "flame")
+                            .font(.system(size: 14))
+                            .foregroundColor(fire.containmentColor)
+                    } else {
+                        Label("Containment unknown", systemImage: "flame")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(hex: "#dc2626"))
+                    }
+
+                    if let acres = fire.acresBurned {
+                        Text("\(Int(acres)) acres")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(hex: "#9ca3af"))
+                    }
+                }
+
+                if let source = fire.source {
+                    Text("Source: \(source.uppercased())")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#6b7280"))
+                }
+            }
+            .padding(16)
+            .background(Color(hex: "#1a1a1a"))
+            .cornerRadius(12, corners: [.topLeft, .topRight])
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .transition(.move(edge: .bottom))
+        .animation(.spring(), value: selectedFire?.id)
+    }
+
+    private func shelterCallout(shelter: ShelterPoint) -> some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(shelter.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Button {
+                        selectedShelter = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundColor(Color(hex: "#6b7280"))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if shelter.verified == true {
+                    Label("OPEN — Verified by FEMA", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(hex: "#16a34a"))
+                } else {
+                    Label("Pre-identified location — call ahead to confirm", systemImage: "questionmark.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(hex: "#d97706"))
+                }
+
+                if let capacity = shelter.capacity {
+                    let occ = shelter.currentOccupancy ?? 0
+                    Text("\(occ) / \(capacity) capacity")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(hex: "#9ca3af"))
+                }
+
                 Button {
-                    selectedPin = nil
+                    let urlString = "maps://?daddr=\(shelter.lat),\(shelter.lng)&dirflg=d"
+                    if let url = URL(string: urlString) {
+                        UIApplication.shared.open(url)
+                    }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(AppColors.textMuted)
+                    Label("Get Directions", systemImage: "map.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(hex: "#1d4ed8"))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .font(.system(size: 15, weight: .semibold))
                 }
                 .buttonStyle(.plain)
             }
-            switch item {
-            case let .fire(f):
-                if let pct = f.containmentPct {
-                    Text(String(format: "Containment: %.0f%%", pct))
-                        .font(.system(size: 15))
-                        .foregroundColor(AppColors.textSecondary)
-                } else {
-                    Text("Containment: unknown")
-                        .font(.system(size: 15))
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                if let src = f.source, !src.isEmpty {
-                    Text(src)
-                        .font(.system(size: 14))
-                        .foregroundColor(AppColors.textMuted)
-                }
-            case let .shelter(s):
-                if s.verified == true {
-                    Text("OPEN ✅")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppColors.primaryLight)
-                } else {
-                    Text("Unverified")
-                        .font(.system(size: 15))
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
+            .padding(16)
+            .background(Color(hex: "#1a1a1a"))
+            .cornerRadius(12, corners: [.topLeft, .topRight])
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
+        .ignoresSafeArea(edges: .bottom)
+        .transition(.move(edge: .bottom))
     }
 }

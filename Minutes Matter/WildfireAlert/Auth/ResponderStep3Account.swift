@@ -104,6 +104,14 @@ struct ResponderStep3Account: View {
 
     private func submit() async {
         errorMessage = nil
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match."
+            return
+        }
+        guard password.count >= 8 else {
+            errorMessage = "Password must be at least 8 characters."
+            return
+        }
         isSubmitting = true
         defer { isSubmitting = false }
         let phoneOpt: String? = {

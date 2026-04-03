@@ -3,7 +3,6 @@
 //  Minutes Matter
 //
 
-import Supabase
 import SwiftUI
 
 struct PeopleView: View {
@@ -45,17 +44,17 @@ struct PeopleView: View {
             }
         }
         .refreshable {
-            if let id = authState.currentUser?.id {
+            if let id = authState.currentUserId {
                 await viewModel.load(userId: id)
             }
         }
         .task {
-            if let id = authState.currentUser?.id {
+            if let id = authState.currentUserId {
                 await viewModel.load(userId: id)
             }
         }
         .sheet(isPresented: $viewModel.showInviteSheet) {
-            if let id = authState.currentUser?.id {
+            if let id = authState.currentUserId {
                 InvitePersonView(viewModel: viewModel, userId: id)
                     .environmentObject(authState)
             }

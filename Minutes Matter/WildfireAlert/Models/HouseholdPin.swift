@@ -65,7 +65,7 @@ struct HouseholdPin: Identifiable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, address, lat, lng, priority
+        case id, address, lat, lng, lon, priority
         case totalPeople = "total_people"
         case evacuated
         case needsHelp = "needs_help"
@@ -79,8 +79,24 @@ struct HouseholdPin: Identifiable, Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         address = try c.decodeIfPresent(String.self, forKey: .address) ?? ""
-        lat = try c.decodeIfPresent(Double.self, forKey: .lat) ?? 0
-        lng = try c.decodeIfPresent(Double.self, forKey: .lng) ?? 0
+        if let d = try? c.decode(Double.self, forKey: .lat) {
+            lat = d
+        } else if let i = try? c.decode(Int.self, forKey: .lat) {
+            lat = Double(i)
+        } else {
+            lat = 0
+        }
+        if let v = try? c.decode(Double.self, forKey: .lng) {
+            lng = v
+        } else if let v = try? c.decode(Double.self, forKey: .lon) {
+            lng = v
+        } else if let v = try? c.decode(Int.self, forKey: .lng) {
+            lng = Double(v)
+        } else if let v = try? c.decode(Int.self, forKey: .lon) {
+            lng = Double(v)
+        } else {
+            lng = 0
+        }
         totalPeople = try c.decodeIfPresent(Int.self, forKey: .totalPeople) ?? 0
         evacuated = try c.decodeIfPresent(Int.self, forKey: .evacuated) ?? 0
         needsHelp = try c.decodeIfPresent(Int.self, forKey: .needsHelp) ?? 0

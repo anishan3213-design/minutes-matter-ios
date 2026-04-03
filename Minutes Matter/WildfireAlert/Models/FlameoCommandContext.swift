@@ -36,6 +36,36 @@ struct IncidentSummary: Codable {
         case needsHelp = "needs_help"
         case completionRate = "completion_rate"
     }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        totalHouseholds = Self.decodeFlexibleInt(c, key: .totalHouseholds)
+        totalPeople = Self.decodeFlexibleInt(c, key: .totalPeople)
+        evacuated = Self.decodeFlexibleInt(c, key: .evacuated)
+        needsHelp = Self.decodeFlexibleInt(c, key: .needsHelp)
+        completionRate = Self.decodeFlexibleCompletionRate(c, key: .completionRate)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(totalHouseholds, forKey: .totalHouseholds)
+        try c.encodeIfPresent(totalPeople, forKey: .totalPeople)
+        try c.encodeIfPresent(evacuated, forKey: .evacuated)
+        try c.encodeIfPresent(needsHelp, forKey: .needsHelp)
+        try c.encodeIfPresent(completionRate, forKey: .completionRate)
+    }
+
+    private static func decodeFlexibleInt(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Int? {
+        if let i = try? c.decode(Int.self, forKey: key) { return i }
+        if let d = try? c.decode(Double.self, forKey: key) { return Int(d.rounded()) }
+        return nil
+    }
+
+    private static func decodeFlexibleCompletionRate(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double? {
+        if let d = try? c.decode(Double.self, forKey: key) { return d }
+        if let i = try? c.decode(Int.self, forKey: key) { return Double(i) }
+        return nil
+    }
 }
 
 struct PriorityAssignment: Codable, Identifiable {
@@ -93,14 +123,20 @@ struct PriorityAssignment: Codable, Identifiable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        rank = try c.decodeIfPresent(Int.self, forKey: .rank) ?? 0
+        if let r = try? c.decode(Int.self, forKey: .rank) {
+            rank = r
+        } else if let d = try? c.decode(Double.self, forKey: .rank) {
+            rank = Int(d.rounded())
+        } else {
+            rank = 0
+        }
         address = try c.decodeIfPresent(String.self, forKey: .address) ?? ""
-        lat = try c.decodeIfPresent(Double.self, forKey: .lat)
-        lng = try c.decodeIfPresent(Double.self, forKey: .lng)
+        lat = Self.decodeFlexibleDouble(c, key: .lat)
+        lng = Self.decodeFlexibleDouble(c, key: .lng)
         reason = try c.decodeIfPresent(String.self, forKey: .reason)
         actionRequired = try c.decodeIfPresent(String.self, forKey: .actionRequired)
-        peopleCount = try c.decodeIfPresent(Int.self, forKey: .peopleCount)
-        cannotEvacuateCount = try c.decodeIfPresent(Int.self, forKey: .cannotEvacuateCount)
+        peopleCount = Self.decodeFlexibleInt(c, key: .peopleCount)
+        cannotEvacuateCount = Self.decodeFlexibleInt(c, key: .cannotEvacuateCount)
         mobilityFlags = try c.decodeIfPresent([String].self, forKey: .mobilityFlags)
         medicalFlags = try c.decodeIfPresent([String].self, forKey: .medicalFlags)
         assignedTo = try c.decodeIfPresent(String.self, forKey: .assignedTo)
@@ -122,6 +158,18 @@ struct PriorityAssignment: Codable, Identifiable {
         try c.encodeIfPresent(assignedTo, forKey: .assignedTo)
         try c.encodeIfPresent(targetUserId, forKey: .targetUserId)
     }
+
+    private static func decodeFlexibleInt(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Int? {
+        if let i = try? c.decode(Int.self, forKey: key) { return i }
+        if let d = try? c.decode(Double.self, forKey: key) { return Int(d.rounded()) }
+        return nil
+    }
+
+    private static func decodeFlexibleDouble(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double? {
+        if let d = try? c.decode(Double.self, forKey: key) { return d }
+        if let i = try? c.decode(Int.self, forKey: key) { return Double(i) }
+        return nil
+    }
 }
 
 struct FieldUnit: Codable, Identifiable {
@@ -142,11 +190,17 @@ struct FieldUnit: Codable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         name = try c.decodeIfPresent(String.self, forKey: .name)
-        lat = try c.decodeIfPresent(Double.self, forKey: .lat)
-        lng = try c.decodeIfPresent(Double.self, forKey: .lng)
+        lat = Self.flexDouble(c, .lat)
+        lng = Self.flexDouble(c, .lng)
         status = try c.decodeIfPresent(String.self, forKey: .status)
         assignment = try c.decodeIfPresent(String.self, forKey: .assignment)
         lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
+    }
+
+    private static func flexDouble(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double? {
+        if let d = try? c.decode(Double.self, forKey: key) { return d }
+        if let i = try? c.decode(Int.self, forKey: key) { return Double(i) }
+        return nil
     }
 
     func encode(to encoder: Encoder) throws {
