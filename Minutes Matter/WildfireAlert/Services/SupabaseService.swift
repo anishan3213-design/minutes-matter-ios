@@ -132,14 +132,28 @@ final class SupabaseService {
         client.auth.currentUser
     }
 
+    /// Returns the caregiver's "My People" — the evacuees/family they're watching over.
+    /// Reads from `profiles.monitored_persons` JSON (written server-side when a
+    /// caregiver adds someone). This matches the web app's data source and works
+    /// within the caregiver's own RLS read permissions.
     func fetchCaregiverFamilyLinks(caregiverId: UUID) async throws -> [CaregiverFamilyLink] {
-        try await client
-            .from("caregiver_family_links")
-            .select()
-            .eq("caregiver_id", value: caregiverId.uuidString)
-            .limit(25)
+        struct MonitoredPersonsRow: Decodable {
+            let monitored_persons: [CaregiverFamilyLink]?
+        }
+        let row: MonitoredPersonsRow = try await client
+            .from("profiles")
+            .select("monitored_persons")
+            .eq("id", value: caregiverId.uuidString)
+            .single()
             .execute()
             .value
+        let all = row.monitored_persons ?? []
+        // Filter out the "self" placeholder the onboarding flow sometimes writes.
+        return all.filter { person in
+            let r = (person.relationship ?? "").lowercased()
+            let fr = (person.familyRelation ?? "").lowercased()
+            return person.id != "self-user" && r != "self" && fr != "self"
+        }
     }
 
     func updateProfileInfo(
